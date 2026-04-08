@@ -48,27 +48,44 @@ const CFG = {
     bc: { accessToken: "YOUR_META_BC_ACCESS_TOKEN", adAccountId: "YOUR_META_BC_AD_ACCOUNT_ID" },
   },
 };
-async function fetchTIXR(c) {
-  if (!c.publicKey || !c.privateKey) return null;
-  try {
-    // TIXR uses HMAC-SHA256: sign publicKey+timestamp with privateKey
-    const ts = Math.floor(Date.now() / 1000).toString();
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(c.privateKey);
-    const msgData = encoder.encode(c.publicKey + ts);
-    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const sigBuf = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-    const sig = btoa(String.fromCharCode(...new Uint8Array(sigBuf)));
-    const headers = {
-      "X-Public-Key": c.publicKey,
-      "X-Timestamp": ts,
-      "X-Signature": sig,
-      "Content-Type": "application/json",
-    };
-    const url = `${c.base}/groups/${c.groupId}/events?status=active`;
-    const d = await (await fetch(url, { headers })).json();
-    return (d.events || d.data || []).map(e => ({ ...e, _account: c._account }));
-  } catch (err) { console.error("TIXR fetch error:", err); return null; }
+// TIXR API replaced with static snapshot — LIV no longer sells on TIXR
+// but legacy tickets are tracked here. Update counts manually as needed.
+const TIXR_STATIC = [
+  // LIV Las Vegas
+  { name: "Cloonee",      date: "2026-04-11", venueType: "nightclub", sold: 7,   revenue: 159.50  },
+  { name: "Metro Boomin", date: "2026-04-17", venueType: "nightclub", sold: 31,  revenue: 1300    },
+  { name: "Dom Dolla",    date: "2026-04-24", venueType: "nightclub", sold: 96,  revenue: 4300    },
+  { name: "Matroda",      date: "2026-04-26", venueType: "nightclub", sold: 8,   revenue: 172     },
+  { name: "John Summit",  date: "2026-05-01", venueType: "nightclub", sold: 292, revenue: 19700   },
+  { name: "David Guetta", date: "2026-05-18", venueType: "nightclub", sold: 45,  revenue: 2800    },
+  { name: "Matroda",      date: "2026-07-19", venueType: "nightclub", sold: 0,   revenue: 0       },
+  { name: "David Guetta", date: "2026-11-21", venueType: "nightclub", sold: 47,  revenue: 4600    },
+  // LIV Beach
+  { name: "David Guetta", date: "2026-04-18", venueType: "beach_club", sold: 96,  revenue: 4300  },
+  { name: "David Guetta", date: "2026-04-25", venueType: "beach_club", sold: 96,  revenue: 3400  },
+  { name: "David Guetta", date: "2026-05-02", venueType: "beach_club", sold: 131, revenue: 4700  },
+  { name: "David Guetta", date: "2026-05-09", venueType: "beach_club", sold: 83,  revenue: 3500  },
+  { name: "David Guetta", date: "2026-05-16", venueType: "beach_club", sold: 40,  revenue: 1600  },
+  { name: "David Guetta", date: "2026-05-23", venueType: "beach_club", sold: 36,  revenue: 1700  },
+  { name: "David Guetta", date: "2026-05-30", venueType: "beach_club", sold: 47,  revenue: 2000  },
+];
+
+async function fetchTIXR(_c) {
+  return TIXR_STATIC.map((e, i) => ({
+    id:          `tixr_static_${i}`,
+    name:        e.name,
+    date:        e.date,
+    venueName:   e.venueType === "beach_club" ? "LIV Beach" : "LIV Las Vegas",
+    venueType:   e.venueType,
+    capacity:    0,
+    ticketsSold: e.sold,
+    tickets24h:  0,
+    revenue:     e.revenue,
+    goal:        0,
+    ticketTypes: {},
+    _source:     "tixr_static",
+    _isMock:     false,
+  }));
 }
 async function fetchSpeakeasy(c) {
   if (!c.token || c.token.startsWith("YOUR_")) return null;
@@ -627,9 +644,7 @@ export default function Dashboard() {
         <div style={{ background: "#0a0a0c", borderBottom: "1px solid #111", padding: "16px 24px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, maxWidth: 960 }}>
             {[
-              { label: "TIXR", color: TC,
-                lv: [[tixrLvPub, setTixrLvPub, "LIV Las Vegas — Public Key"], [tixrLvPriv, setTixrLvPriv, "LIV Las Vegas — Private Key"], [tixrLvGrp, setTixrLvGrp, "LIV Las Vegas — Group ID"]],
-                bc: [[tixrBcPub, setTixrBcPub, "LIV Beach — Public Key"],     [tixrBcPriv, setTixrBcPriv, "LIV Beach — Private Key"],     [tixrBcGrp, setTixrBcGrp, "LIV Beach — Group ID"]] },
+              // TIXR removed — using static snapshot (LIV no longer sells on TIXR)
               { label: "SPEAKEASY", color: SC,
                 lv: [[spkLvToken, setSpkLvToken, "LIV Las Vegas — Token"]],
                 bc: [[spkBcToken, setSpkBcToken, "LIV Beach — Token"]] },
