@@ -532,22 +532,28 @@ export default function Dashboard() {
       const tr = [...(trLv || []), ...(trBc || [])];
       const sr = [...(srLv || []), ...(srBc || [])];
       const ur = [...(urLv || []), ...(urBc || [])];
-      console.log(`[Load] TIXR: ${tr.length} events, Speakeasy: ${sr.length} events, UrVenue: ${ur.length} events`);
+      console.log(`[Load] TIXR static: ${tr.length}, Speakeasy live: ${sr.length}`);
       if (sr.length > 0) console.log(`[Load] Speakeasy sample:`, sr[0]?.name, sr[0]?.date, 'sold:', sr[0]?.ticketsSold, 'rev:', sr[0]?.revenue);
 
-      // Per-platform fallback: use live data if available, mock otherwise.
-      // This lets Speakeasy show real data even if TIXR/UrVenue aren't connected yet.
-      const anyLive = tr.length > 0 || sr.length > 0 || ur.length > 0;
-      setIsMock(!anyLive);
-      const mock = buildMock();
-      const agg = aggregate(
-        tr.length > 0 ? tr : mock.tixr,
-        sr.length > 0 ? sr : mock.spk,
-        ur.length > 0 ? ur : mock.uv,
-      );
-      setAllEvents(agg);
-      setSel(prev => agg.find(e => e.id === prev?.id) || agg[0] || null);
+      const spkLive = sr.length > 0;
+      setIsMock(!spkLive);
+
+      if (spkLive) {
+        // Speakeasy is live — use it as primary source.
+        // Add TIXR static only for events NOT already in Speakeasy.
+        const spkKeys = new Set(sr.map(e => normKey(e.name, e.date)));
+        const tixrOnly = tr.filter(e => !spkKeys.has(normKey(e.name, e.date)));
+        console.log(`[Load] Speakeasy covers ${sr.length} events, TIXR adds ${tixrOnly.length} unique events`);
+        const agg = aggregate([...sr, ...tixrOnly], [], []);
+        setAllEvents(agg);
+      } else {
+        // Nothing live — show mock
+        const mock = buildMock();
+        const agg = aggregate(mock.tixr, mock.spk, []);
+        setAllEvents(agg);
+      }
       setLastSync(new Date());
+
     } catch (err) {
       console.error("load error", err);
       // Only show mock on total failure — show empty state if some platforms responded
