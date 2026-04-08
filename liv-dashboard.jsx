@@ -751,7 +751,6 @@ export default function Dashboard() {
                           {/* Bottom: 24h badge */}
                           {e.tickets24h > 0 && <div style={{ display: "flex" }}><Delta n={e.tickets24h} /></div>}
                         </div>
-                    </div>
 
                     {/* Ticket type breakdown */}
                     {isExp && hasTypes && (
