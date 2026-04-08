@@ -103,11 +103,14 @@ async function fetchSpeakeasy(c) {
   }
 
   try {
+    console.log(`[Speakeasy ${c._account}] fetching events + stats...`);
     const [evRes, statRes] = await Promise.all([
       fetch(`${base}/events?skip=0&take=200&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false`, { headers }),
       fetch(`${base}/events/statistics?skip=0&take=200`, { headers }),
     ]);
+    console.log(`[Speakeasy ${c._account}] events status: ${evRes.status}, stats status: ${statRes.status}`);
     const [evData, statData] = await Promise.all([evRes.json(), statRes.json()]);
+    console.log(`[Speakeasy ${c._account}] events count: ${(evData.list||[]).length}, stats count: ${(statData.list||[]).length}`);
 
     const events = evData.list || [];
     const stats  = statData.list || [];
@@ -115,9 +118,11 @@ async function fetchSpeakeasy(c) {
     // Join key: events.uniqueId === stats.event_id (e.g. "EVE-PUIZ2J")
     const statMap = {};
     stats.forEach(s => { if (s.event_id) statMap[s.event_id] = s; });
+    console.log(`[Speakeasy ${c._account}] stat keys sample:`, Object.keys(statMap).slice(0, 3));
 
     return events.map(e => {
       const s = statMap[e.uniqueId] || {};
+      if (!statMap[e.uniqueId]) console.warn(`[Speakeasy ${c._account}] no stats match for ${e.uniqueId} (${e.title})`);
 
       // Ticket type breakdown from stats (more granular than events endpoint)
       const ticketTypes = {};
@@ -527,6 +532,8 @@ export default function Dashboard() {
       const tr = [...(trLv || []), ...(trBc || [])];
       const sr = [...(srLv || []), ...(srBc || [])];
       const ur = [...(urLv || []), ...(urBc || [])];
+      console.log(`[Load] TIXR: ${tr.length} events, Speakeasy: ${sr.length} events, UrVenue: ${ur.length} events`);
+      if (sr.length > 0) console.log(`[Load] Speakeasy sample:`, sr[0]?.name, sr[0]?.date, 'sold:', sr[0]?.ticketsSold, 'rev:', sr[0]?.revenue);
 
       // Per-platform fallback: use live data if available, mock otherwise.
       // This lets Speakeasy show real data even if TIXR/UrVenue aren't connected yet.
