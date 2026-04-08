@@ -74,34 +74,63 @@ async function fetchSpeakeasy(c) {
   if (!c.token || c.token.startsWith("YOUR_")) return null;
   const base = "https://production.speakeasygo.com/partners";
   const headers = { "token": c.token };
+
+  // Normalize Speakeasy ticket_name → internal key
+  function spkTypeKey(name = "") {
+    const n = name.toLowerCase();
+    if (n.includes("vip") || n.includes("backstage")) return "vip_backstage";
+    if (n.includes("expedited"))                        return "expedited";
+    if (n.includes("female"))                           return "female_ga";
+    if (n.includes("male"))                             return "male_ga";
+    return name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  }
+
   try {
-    // Fetch event list and stats in parallel
+    // Fetch event list and stats in parallel — paginate stats to get all 144+
     const [evRes, statRes] = await Promise.all([
-      fetch(`${base}/events?skip=0&take=100&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false`, { headers }),
-      fetch(`${base}/events/statistics?skip=0&take=100`, { headers }),
+      fetch(`${base}/events?skip=0&take=200&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false`, { headers }),
+      fetch(`${base}/events/statistics?skip=0&take=200`, { headers }),
     ]);
     const [evData, statData] = await Promise.all([evRes.json(), statRes.json()]);
-    const events = evData.data || evData.events || evData || [];
-    const stats  = statData.data || statData.events || statData || [];
-    // Build stats lookup by event id
+
+    const events = evData.list || evData.data || evData.events || [];
+    const stats  = statData.list || statData.data || statData.events || [];
+
+    // Build stats lookup by event_id (e.g. "EVE-6QNGL4")
     const statMap = {};
-    stats.forEach(s => { statMap[s.eventId || s.id] = s; });
+    stats.forEach(s => {
+      if (s.event_id) statMap[s.event_id] = s;
+    });
+
     return events.map(e => {
-      const s = statMap[e.id] || {};
+      // Events endpoint uses id or event_id to match
+      const s = statMap[e.id] || statMap[e.event_id] || {};
+
+      // Map ticket_types array → internal object keyed by type
+      const ticketTypes = {};
+      (s.ticket_types || []).forEach(t => {
+        const key = spkTypeKey(t.ticket_name);
+        ticketTypes[key] = {
+          sold:    t.tickets_sold || 0,
+          price:   t.price || 0,
+          revenue: t.revenue || 0,
+        };
+      });
+
       return {
-        id: `spk_${e.id}`,
-        name: e.title || e.name,
-        date: (e.startDateTime || e.date || "").slice(0, 10),
-        venueName: e.venue?.name || e.venueName || c._account === "lv" ? "LIV Las Vegas" : "LIV Beach",
-        venueType: c._account === "bc" ? "beach_club" : "nightclub",
-        capacity: e.capacity || s.capacity || 0,
-        ticketsSold: s.ticketsSold || s.sold || 0,
-        tickets24h: s.last24Hours || s.tickets24h || 0,
-        revenue: s.revenue || s.totalRevenue || 0,
-        goal: s.goal || 0,
-        ticketTypes: s.ticketTypes || {},
-        _source: "speakeasy",
-        _account: c._account,
+        id:          `spk_${e.id || e.event_id}`,
+        name:        e.title || e.name || e.event_name || "",
+        date:        (e.startDateTime || e.start_date || e.date || "").slice(0, 10),
+        venueName:   c._account === "bc" ? "LIV Beach" : "LIV Las Vegas",
+        venueType:   c._account === "bc" ? "beach_club" : "nightclub",
+        capacity:    e.capacity || 0,
+        ticketsSold: s.ticket_sold || 0,
+        tickets24h:  s.ticket_sold_last_24_hours || 0,
+        revenue:     s.total_revenue || 0,
+        goal:        0,
+        ticketTypes,
+        _source:     "speakeasy",
+        _account:    c._account,
       };
     });
   } catch (err) { console.error("Speakeasy fetch error:", err); return null; }
