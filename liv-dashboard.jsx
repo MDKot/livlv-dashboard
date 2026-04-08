@@ -461,15 +461,21 @@ export default function Dashboard() {
       const tr = [...(trLv || []), ...(trBc || [])];
       const sr = [...(srLv || []), ...(srBc || [])];
       const ur = [...(urLv || []), ...(urBc || [])];
-      const anyLive = trLv || trBc || srLv || srBc || urLv || urBc;
-      const mock = buildMock();
+      const anyLive = tr.length > 0 || sr.length > 0 || ur.length > 0;
       setIsMock(!anyLive);
-      const agg = aggregate(tr.length ? tr : mock.tixr, sr.length ? sr : mock.spk, ur.length ? ur : mock.uv);
+      // Only fall back to mock when ALL platforms fail — never mix real + mock data
+      const mock = anyLive ? null : buildMock();
+      const agg = aggregate(
+        anyLive ? tr : mock.tixr,
+        anyLive ? sr : mock.spk,
+        anyLive ? ur : mock.uv,
+      );
       setAllEvents(agg);
       setSel(prev => agg.find(e => e.id === prev?.id) || agg[0] || null);
       setLastSync(new Date());
     } catch (err) {
       console.error("load error", err);
+      // Only show mock on total failure — show empty state if some platforms responded
       const mock = buildMock();
       const agg = aggregate(mock.tixr, mock.spk, mock.uv);
       setAllEvents(agg);
