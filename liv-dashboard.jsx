@@ -309,11 +309,7 @@ function aggregate(tixr, spk, uv) {
     }
   });
 
-  // Attach UrVenue table data
-  uv.forEach(u => {
-    const k = normKey(u.eventName, u.date);
-    if (map.has(k)) map.set(k, { ...map.get(k), uvData: u });
-  });
+  // UrVenue disabled — uvData will be null for all events
 
   const today = new Date();
   return Array.from(map.values()).map(e => {
@@ -521,8 +517,8 @@ export default function Dashboard() {
         fetchTIXR({ base: base.tixr, publicKey: tixrBcPub, privateKey: tixrBcPriv, groupId: tixrBcGrp, _account: "bc" }),
         fetchSpeakeasy({ token: spkLvToken, _account: "lv" }),
         fetchSpeakeasy({ token: spkBcToken, _account: "bc" }),
-        fetchUrVenue({ base: base.uv, apiKey: uvLvKey, venueId: uvLvId, _account: "lv" }),
-        fetchUrVenue({ base: base.uv, apiKey: uvBcKey, venueId: uvBcId, _account: "bc" }),
+        Promise.resolve([]), // UrVenue disabled — pending credentials
+        Promise.resolve([]), // UrVenue disabled — pending credentials
         fetchMeta({ accessToken: metaLvToken, adAccountId: metaLvAcct, _account: "lv" }),
         fetchMeta({ accessToken: metaBcToken, adAccountId: metaBcAcct, _account: "bc" }),
       ]);
