@@ -242,7 +242,7 @@ const EVENTS = [
 function buildMock() {
   const tixr = EVENTS.map((e, i) => {
     const vip = VIP.has(e.n);
-    return { id: `tixr_${i}`, name: e.n, date: e.d, venueName: e.v, venueType: classifyVenue(e.v), capacity: e.c, ticketsSold: e.tS, tickets24h: Math.round(e.t24 * 0.6), ticketTypes: buildTypes(e.tS, e.tR, vip), revenue: e.tR, goal: e.g * (e.tS / (e.tS + e.sS)), paceHistory: buildPace(e.tS / 45) };
+    return { id: `tixr_${i}`, name: e.n, date: e.d, venueName: e.v, venueType: classifyVenue(e.v), capacity: e.c, ticketsSold: e.tS, tickets24h: Math.round(e.t24 * 0.6), ticketTypes: buildTypes(e.tS, e.tR, vip), revenue: e.tR, goal: e.g * (e.tS / (e.tS + e.sS)), paceHistory: buildPace(e.tS / 45), _isMock: true };
   });
   const spk = EVENTS.map((e, i) => {
     const vip = VIP.has(e.n);
@@ -259,29 +259,51 @@ function buildMock() {
 // ─── AGGREGATION ──────────────────────────────────────────────────────────────
 function aggregate(tixr, spk, uv) {
   const map = new Map();
+
+  // Seed from TIXR (primary ticketing)
   tixr.forEach(e => {
     const k = normKey(e.name, e.date);
-    map.set(k, { ...e, uvData: null });
+    map.set(k, { ...e, uvData: null, _hasTixr: !e._isMock });
   });
+
+  // Merge Speakeasy (secondary channel — ADD to TIXR counts if both real,
+  // but if TIXR is mock and Speakeasy is real, REPLACE with Speakeasy data)
   spk.forEach(e => {
     const k = normKey(e.name, e.date);
     if (map.has(k)) {
       const ex = map.get(k);
-      map.set(k, { ...ex, ticketsSold: ex.ticketsSold + e.ticketsSold, revenue: ex.revenue + e.revenue, goal: ex.goal + e.goal, tickets24h: (ex.tickets24h || 0) + (e.tickets24h || 0), ticketTypes: mergeTypes(ex.ticketTypes, e.ticketTypes) });
+      if (!ex._hasTixr) {
+        // TIXR is mock for this event — replace entirely with real Speakeasy data
+        map.set(k, { ...e, uvData: null });
+      } else {
+        // Both real — add counts (separate sales channels)
+        map.set(k, {
+          ...ex,
+          ticketsSold: ex.ticketsSold + e.ticketsSold,
+          revenue:     ex.revenue + e.revenue,
+          goal:        ex.goal + e.goal,
+          tickets24h:  (ex.tickets24h || 0) + (e.tickets24h || 0),
+          ticketTypes: mergeTypes(ex.ticketTypes, e.ticketTypes),
+        });
+      }
     } else {
+      // Event only in Speakeasy — add it
       map.set(k, { ...e, uvData: null });
     }
   });
+
+  // Attach UrVenue table data
   uv.forEach(u => {
     const k = normKey(u.eventName, u.date);
     if (map.has(k)) map.set(k, { ...map.get(k), uvData: u });
   });
+
   const today = new Date();
   return Array.from(map.values()).map(e => {
     const daysToEvent = Math.ceil((new Date(e.date) - today) / 86400000);
-    const daysOnSale = Math.max(1, 90 - daysToEvent);
-    const dailyPace = e.ticketsSold / daysOnSale;
-    const projSold = Math.min(e.capacity, e.ticketsSold + dailyPace * Math.max(0, daysToEvent));
+    const daysOnSale  = Math.max(1, 90 - daysToEvent);
+    const dailyPace   = e.ticketsSold / daysOnSale;
+    const projSold    = Math.min(e.capacity, e.ticketsSold + dailyPace * Math.max(0, daysToEvent));
     return { ...e, daysToEvent, dailyPace, projRevenue: (projSold / e.capacity) * e.goal };
   }).sort((a, b) => new Date(a.date) - new Date(b.date));
 }
@@ -487,19 +509,21 @@ export default function Dashboard() {
         fetchMeta({ accessToken: metaLvToken, adAccountId: metaLvAcct, _account: "lv" }),
         fetchMeta({ accessToken: metaBcToken, adAccountId: metaBcAcct, _account: "bc" }),
       ]);
-      const mt = [...(mtLv || []), ...(mtBc || [])];
-      setMetaCampaigns(mt);
+      setMetaCampaigns([...(mtLv || []), ...(mtBc || [])]);
+
       const tr = [...(trLv || []), ...(trBc || [])];
       const sr = [...(srLv || []), ...(srBc || [])];
       const ur = [...(urLv || []), ...(urBc || [])];
+
+      // Per-platform fallback: use live data if available, mock otherwise.
+      // This lets Speakeasy show real data even if TIXR/UrVenue aren't connected yet.
       const anyLive = tr.length > 0 || sr.length > 0 || ur.length > 0;
       setIsMock(!anyLive);
-      // Only fall back to mock when ALL platforms fail — never mix real + mock data
-      const mock = anyLive ? null : buildMock();
+      const mock = buildMock();
       const agg = aggregate(
-        anyLive ? tr : mock.tixr,
-        anyLive ? sr : mock.spk,
-        anyLive ? ur : mock.uv,
+        tr.length > 0 ? tr : mock.tixr,
+        sr.length > 0 ? sr : mock.spk,
+        ur.length > 0 ? ur : mock.uv,
       );
       setAllEvents(agg);
       setSel(prev => agg.find(e => e.id === prev?.id) || agg[0] || null);
