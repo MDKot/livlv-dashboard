@@ -104,9 +104,11 @@ async function fetchSpeakeasy(c) {
 
   try {
     console.log(`[Speakeasy ${c._account}] fetching events + stats...`);
+    // Token contains special chars (+/=) — must be encoded for browser fetch
+    const encodedToken = encodeURIComponent(c.token);
     const [evRes, statRes] = await Promise.all([
-      fetch(`${base}/events?skip=0&take=200&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false`, { headers }),
-      fetch(`${base}/events/statistics?skip=0&take=200`, { headers }),
+      fetch(`${base}/events?skip=0&take=200&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false&token=${encodedToken}`),
+      fetch(`${base}/events/statistics?skip=0&take=200&token=${encodedToken}`),
     ]);
     console.log(`[Speakeasy ${c._account}] events status: ${evRes.status}, stats status: ${statRes.status}`);
     const [evData, statData] = await Promise.all([evRes.json(), statRes.json()]);
