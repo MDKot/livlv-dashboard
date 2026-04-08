@@ -89,8 +89,6 @@ async function fetchTIXR(_c) {
 }
 async function fetchSpeakeasy(c) {
   if (!c.token || c.token.startsWith("YOUR_")) return null;
-  const base = "https://production.speakeasygo.com/partners";
-  const headers = { "token": c.token };
 
   // Normalize Speakeasy ticket_name → internal key
   function spkTypeKey(name = "") {
@@ -103,21 +101,20 @@ async function fetchSpeakeasy(c) {
   }
 
   try {
-    console.log(`[Speakeasy ${c._account}] fetching events + stats...`);
-    // Token contains special chars (+/=) — must be encoded for browser fetch
-    const encodedToken = encodeURIComponent(c.token);
+    console.log(`[Speakeasy ${c._account}] fetching via proxy...`);
+    // Proxy routes through /api/speakeasy to avoid CORS — Speakeasy requires
+    // token as a header which browsers block cross-origin
     const [evRes, statRes] = await Promise.all([
-      fetch(`${base}/events?skip=0&take=200&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false&token=${encodedToken}`),
-      fetch(`${base}/events/statistics?skip=0&take=200&token=${encodedToken}`),
+      fetch(`/api/speakeasy?account=${c._account}&endpoint=events`),
+      fetch(`/api/speakeasy?account=${c._account}&endpoint=statistics`),
     ]);
     console.log(`[Speakeasy ${c._account}] events status: ${evRes.status}, stats status: ${statRes.status}`);
     const [evData, statData] = await Promise.all([evRes.json(), statRes.json()]);
-    console.log(`[Speakeasy ${c._account}] events count: ${(evData.list||[]).length}, stats count: ${(statData.list||[]).length}`);
+    console.log(`[Speakeasy ${c._account}] events: ${(evData.list||[]).length}, stats: ${(statData.list||[]).length}`);
 
     const events = evData.list || [];
     const stats  = statData.list || [];
 
-    // Join key: events.uniqueId === stats.event_id (e.g. "EVE-PUIZ2J")
     const statMap = {};
     stats.forEach(s => { if (s.event_id) statMap[s.event_id] = s; });
     console.log(`[Speakeasy ${c._account}] stat keys sample:`, Object.keys(statMap).slice(0, 3));
