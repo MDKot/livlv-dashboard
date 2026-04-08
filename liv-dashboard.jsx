@@ -39,9 +39,7 @@ const CFG = {
   tixr:     { base: "https://studio.tixr.com/api/v1",
     lv: { publicKey: "", privateKey: "", groupId: "1841" },
     bc: { publicKey: "", privateKey: "", groupId: "1927" } },
-  speakeasy:{ base: "https://api.speakeasygo.com/v1",
-    lv: { apiKey: "YOUR_SPK_LV_API_KEY",      venueId: "YOUR_SPK_LV_VENUE_ID" },
-    bc: { apiKey: "YOUR_SPK_BC_API_KEY",      venueId: "YOUR_SPK_BC_VENUE_ID" } },
+  speakeasy:{ base: "https://production.speakeasygo.com/partners" },
   urvenue:  { base: "https://api.urvenue.com/v1",
     lv: { apiKey: "YOUR_UV_LV_API_KEY",       venueId: "YOUR_UV_LV_VENUE_ID" },
     bc: { apiKey: "YOUR_UV_BC_API_KEY",       venueId: "YOUR_UV_BC_VENUE_ID" } },
@@ -73,8 +71,40 @@ async function fetchTIXR(c) {
   } catch (err) { console.error("TIXR fetch error:", err); return null; }
 }
 async function fetchSpeakeasy(c) {
-  if (!c.apiKey || c.apiKey.startsWith("YOUR_")) return null;
-  try { const d = await (await fetch(`${c.base}/venues/${c.venueId}/events`, { headers: { Authorization: `Bearer ${c.apiKey}` } })).json(); return d.events || []; } catch { return null; }
+  if (!c.token || c.token.startsWith("YOUR_")) return null;
+  const base = "https://production.speakeasygo.com/partners";
+  const headers = { "token": c.token };
+  try {
+    // Fetch event list and stats in parallel
+    const [evRes, statRes] = await Promise.all([
+      fetch(`${base}/events?skip=0&take=100&orderBy=startDateTime%7Casc&version=PUBLISHED&eventStatus=APPROVED&status=ENABLED&timeVersion=UPCOMING&isDiscounted=false`, { headers }),
+      fetch(`${base}/events/statistics?skip=0&take=100`, { headers }),
+    ]);
+    const [evData, statData] = await Promise.all([evRes.json(), statRes.json()]);
+    const events = evData.data || evData.events || evData || [];
+    const stats  = statData.data || statData.events || statData || [];
+    // Build stats lookup by event id
+    const statMap = {};
+    stats.forEach(s => { statMap[s.eventId || s.id] = s; });
+    return events.map(e => {
+      const s = statMap[e.id] || {};
+      return {
+        id: `spk_${e.id}`,
+        name: e.title || e.name,
+        date: (e.startDateTime || e.date || "").slice(0, 10),
+        venueName: e.venue?.name || e.venueName || c._account === "lv" ? "LIV Las Vegas" : "LIV Beach",
+        venueType: c._account === "bc" ? "beach_club" : "nightclub",
+        capacity: e.capacity || s.capacity || 0,
+        ticketsSold: s.ticketsSold || s.sold || 0,
+        tickets24h: s.last24Hours || s.tickets24h || 0,
+        revenue: s.revenue || s.totalRevenue || 0,
+        goal: s.goal || 0,
+        ticketTypes: s.ticketTypes || {},
+        _source: "speakeasy",
+        _account: c._account,
+      };
+    });
+  } catch (err) { console.error("Speakeasy fetch error:", err); return null; }
 }
 async function fetchUrVenue(c) {
   if (!c.apiKey || c.apiKey.startsWith("YOUR_")) return null;
@@ -397,10 +427,8 @@ export default function Dashboard() {
   const [tixrBcPriv, setTixrBcPriv] = useState("zfdqsGmBOM815cmKPyYK");
   const [tixrBcGrp,  setTixrBcGrp]  = useState(CFG.tixr.bc.groupId);
   // Speakeasy
-  const [spkLvKey,   setSpkLvKey]   = useState(CFG.speakeasy.lv.apiKey);
-  const [spkLvId,    setSpkLvId]    = useState(CFG.speakeasy.lv.venueId);
-  const [spkBcKey,   setSpkBcKey]   = useState(CFG.speakeasy.bc.apiKey);
-  const [spkBcId,    setSpkBcId]    = useState(CFG.speakeasy.bc.venueId);
+  const [spkLvToken, setSpkLvToken] = useState("9QRm0GFvcZ3GjGUzdlpJCP9vEtB/51xMGPiRV5V1ldFIPJDWe75UP3M9MR80+5ps0Z1kuHmEGzxNyTwZIzFjJkg0PxPZrWCKTJeNuSuONcyMk6b2zjU6WwdMqSbIRRuey750CZzjyYbh0bDOcxwnyw==");
+  const [spkBcToken, setSpkBcToken] = useState("9QRm0GFvcZ3GjGUzdlpJCP9vEtB/51xMGPiRV5V1ldFIPJDWe75UP3M9MR80+5psbnKfbZ3pjdt8RwQ2zqHh7L6UsnDquR5aMF+ZedUuYwAnGIlHWYvFtGTdwp11Amm/M0fX1ELGh6/Y7x3Tp2duQw==");
   // UrVenue
   const [uvLvKey,    setUvLvKey]    = useState(CFG.urvenue.lv.apiKey);
   const [uvLvId,     setUvLvId]     = useState(CFG.urvenue.lv.venueId);
@@ -417,12 +445,12 @@ export default function Dashboard() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); else setSyncing(true);
     try {
-      const base = { tixr: CFG.tixr.base, spk: CFG.speakeasy.base, uv: CFG.urvenue.base };
+      const base = { tixr: CFG.tixr.base, uv: CFG.urvenue.base };
       const [trLv, trBc, srLv, srBc, urLv, urBc, mtLv, mtBc] = await Promise.all([
         fetchTIXR({ base: base.tixr, publicKey: tixrLvPub, privateKey: tixrLvPriv, groupId: tixrLvGrp, _account: "lv" }),
         fetchTIXR({ base: base.tixr, publicKey: tixrBcPub, privateKey: tixrBcPriv, groupId: tixrBcGrp, _account: "bc" }),
-        fetchSpeakeasy({ base: base.spk, apiKey: spkLvKey, venueId: spkLvId, _account: "lv" }),
-        fetchSpeakeasy({ base: base.spk, apiKey: spkBcKey, venueId: spkBcId, _account: "bc" }),
+        fetchSpeakeasy({ token: spkLvToken, _account: "lv" }),
+        fetchSpeakeasy({ token: spkBcToken, _account: "bc" }),
         fetchUrVenue({ base: base.uv, apiKey: uvLvKey, venueId: uvLvId, _account: "lv" }),
         fetchUrVenue({ base: base.uv, apiKey: uvBcKey, venueId: uvBcId, _account: "bc" }),
         fetchMeta({ accessToken: metaLvToken, adAccountId: metaLvAcct, _account: "lv" }),
@@ -451,7 +479,7 @@ export default function Dashboard() {
       setLoading(false);
       setSyncing(false);
     }
-  }, [tixrLvPub, tixrLvPriv, tixrLvGrp, tixrBcPub, tixrBcPriv, tixrBcGrp, spkLvKey, spkLvId, spkBcKey, spkBcId, uvLvKey, uvLvId, uvBcKey, uvBcId, metaLvToken, metaLvAcct, metaBcToken, metaBcAcct]);
+  }, [tixrLvPub, tixrLvPriv, tixrLvGrp, tixrBcPub, tixrBcPriv, tixrBcGrp, spkLvToken, spkBcToken, uvLvKey, uvLvId, uvBcKey, uvBcId, metaLvToken, metaLvAcct, metaBcToken, metaBcAcct]);
 
   useEffect(() => { load(); }, []);
   useEffect(() => {
@@ -542,8 +570,8 @@ export default function Dashboard() {
                 lv: [[tixrLvPub, setTixrLvPub, "LIV Las Vegas — Public Key"], [tixrLvPriv, setTixrLvPriv, "LIV Las Vegas — Private Key"], [tixrLvGrp, setTixrLvGrp, "LIV Las Vegas — Group ID"]],
                 bc: [[tixrBcPub, setTixrBcPub, "LIV Beach — Public Key"],     [tixrBcPriv, setTixrBcPriv, "LIV Beach — Private Key"],     [tixrBcGrp, setTixrBcGrp, "LIV Beach — Group ID"]] },
               { label: "SPEAKEASY", color: SC,
-                lv: [[spkLvKey, setSpkLvKey, "LIV Las Vegas — API Key"],   [spkLvId, setSpkLvId, "LIV Las Vegas — Venue ID"]],
-                bc: [[spkBcKey, setSpkBcKey, "LIV Beach — API Key"],       [spkBcId, setSpkBcId, "LIV Beach — Venue ID"]] },
+                lv: [[spkLvToken, setSpkLvToken, "LIV Las Vegas — Token"]],
+                bc: [[spkBcToken, setSpkBcToken, "LIV Beach — Token"]] },
               { label: "URVENUE", color: UC,
                 lv: [[uvLvKey, setUvLvKey, "LIV Las Vegas — API Key"],     [uvLvId, setUvLvId, "LIV Las Vegas — Venue ID"]],
                 bc: [[uvBcKey, setUvBcKey, "LIV Beach — API Key"],         [uvBcId, setUvBcId, "LIV Beach — Venue ID"]] },
